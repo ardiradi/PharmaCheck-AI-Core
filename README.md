@@ -1,94 +1,68 @@
 # PharmaCheck AI
 
-PharmaCheck AI is a Streamlit prototype for extracting important fields from pharmaceutical labels and documents with Azure AI Document Intelligence.
+PharmaCheck is a Streamlit prototype that reads pharmaceutical labels and documents and presents candidate material names, batch numbers, and expiry dates for human review. Local Tesseract OCR is the default and needs no Azure account or API key. Azure Document Intelligence remains an explicitly selected optional route.
 
-[Open the live demo](https://ard11-pharmacheck-ai.hf.space/)
+[Open the demo](https://ard11-pharmacheck-ai.hf.space/)
 
-On 10 October 2026 Docker startup, health, browser upload, and image preview were verified after the [Streamlit compatibility update](evidence/runtime-compatibility-2026-10-10.md). One live extraction action failed; the owner confirmed that the Azure Document Intelligence resource is inactive. The application is available for inspection, while genuine OCR output remains unavailable. [Current verification and safe diagnostics](evidence/ocr-diagnostics-2026-10-10.md) and the [existing-Space handoff](deploy/huggingface/DEPLOY.md) record that boundary.
+On 10 October 2026 the source added offline OCR after the owner reported the Azure resource inactive. Windows native tests read all three explicit labels on the existing synthetic sample and on an in-memory two-page PDF fixture. This replacement has not yet been deployed or verified in the Linux Space. The previous deployed image accepted uploads and previews, while its one real Azure processing attempt failed. See [local OCR evidence](evidence/local-ocr-2026-10-10.md) and the [deployment handoff](deploy/huggingface/DEPLOY.md).
 
-![Sample pharmaceutical label used to test the extraction flow](Gambar%20Test.jpeg)
+![Public synthetic label](Gambar%20Test.jpeg)
 
-## Problem
+## Workflow and limits
 
-Material labels can contain operationally important values such as a material name, batch number, and expiry date. Reading these fields manually is repetitive and a single transcription mistake can cause downstream problems.
+1. Upload JPG/JPEG, PNG, or PDF (maximum 10 MiB).
+2. The local route decodes images or renders PDF pages at 300 DPI and reads them with English Tesseract OCR. Processing happens on the application server. Documents are not sent to Azure in this mode.
+3. A conservative parser accepts explicit anchored labels such as `Material Name:`, `Batch Number:`, and `Expiry Date:`. It preserves recognized values without correcting identifiers or dates. A value can occupy the immediate next line; it never crosses a page boundary.
+4. The interface shows candidates, raw OCR per page, and explicit missing or ambiguous fields. Repeated identical candidates are deduplicated; conflicting values are all retained.
 
-This prototype makes those values easier to inspect. It does not make release, quality, or medical decisions.
+Local processing allows at most five PDF pages and 12 megapixels per image/rendered page. Each OCR page has a 15-second recognition limit; the disposable worker has a 60-second total deadline and a 200,000-character raw-text cap. Linux workers additionally have a 2 GiB address-space ceiling. PDF parsing/rendering and OCR are isolated in a subprocess; temporary files are removed after completion or failure. The app does not keep a document database or audit history.
 
-## What the prototype does
-
-1. Accepts a JPG, JPEG, PNG, or PDF upload.
-2. Sends the document bytes to Azure's `prebuilt-document` model.
-3. Matches returned key-value pairs against explicit keyword groups.
-4. Shows the material name, batch number, and expiry date as primary fields.
-5. Keeps other key-value fields and raw OCR text available for human review.
+This is an extraction aid, not a quality release or medical decision tool. A recognized candidate is not a validated fact. On the sample, three explicit fields matched visual inspection, but other text was wrong: `50 mg` was read as `90 mg` in the original-file probe and `30 mg` after the application's RGB normalization. Do not use this prototype for dosage interpretation. One synthetic label and a simple PDF fixture do not establish general OCR accuracy. Layout, blur, rotation, language, punctuation, and multi-column documents can impair results.
 
 ## Implementation
 
-- Python and Streamlit for the interface
-- Azure AI Document Intelligence (`azure-ai-formrecognizer`) for OCR and key-value extraction
-- Pillow for local image previews
-- Streamlit resource caching for the Azure client
-
-The field mapping is intentionally transparent: `pharmacheck_core.py` contains the original keyword lists and matching order used to classify extracted keys. Configuration resolution is independent of Streamlit so missing/invalid settings can be tested without Azure requests.
+- Streamlit 1.48.1, with CORS/XSRF defaults enabled and a 30-second WebSocket ping interval.
+- `tesserocr==2.10.0`, a native Tesseract binding. The probed Windows build contains Tesseract 5.5.2; the Linux wheel's actual engine version must be recorded independently.
+- Official English `tessdata_fast` model pinned to commit `87416418657359cb625c412a48b6e1d6d41c29bd` and SHA-256 `7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`.
+- `pypdfium2==5.14.0` for PDF rasterization, with native objects closed explicitly inside the worker. PDFium is not shared across concurrent Streamlit threads.
+- Pillow 10.2.0 for image validation, EXIF orientation, RGB conversion, and preview.
+- Existing Azure SDK pins and historical key-value mapper retained for the optional Azure route. That route preserves its broad substring/last-match behavior; local parsing uses a separate conservative mapper.
 
 ## Run locally
 
+Use Python 3.12 and an isolated virtual environment. On Debian, install `tesseract-ocr` and `tesseract-ocr-eng`, then install the pinned Python requirements. The Dockerfile builds a Linux image using available binary wheels and downloads/verifies the pinned English model at build time. The Docker tag is `python:3.12-slim`, not an immutable image digest.
+
 ```bash
-git clone https://github.com/ardiradi/PharmaCheck-AI-Core.git
-cd PharmaCheck-AI-Core
 python -m venv .venv
+# Activate the environment for your platform.
+python -m pip install -r requirements.txt
+streamlit run app.py --server.maxUploadSize=10
 ```
 
-Activate the environment, then install and run the app:
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-Use Python 3.12 with the pinned dependencies. Configure `AZURE_ENDPOINT` and `AZURE_KEY` as runtime environment variables (preferred for Docker Spaces), or create `.streamlit/secrets.toml` locally:
-
-```toml
-AZURE_ENDPOINT = "https://your-resource.cognitiveservices.azure.com/"
-AZURE_KEY = "your-key"
-```
-
-Do not commit credentials or documents containing confidential information.
-
-Environment values take precedence over the local secrets file. Missing or invalid configuration displays a setup message and stops before the uploader or OCR request. Service failures display a generic message without raw exceptions or credentials. There is no simulated OCR fallback.
-
-Extraction failures with a validated HTTP status show a plain next step; otherwise the existing generic message is retained. Server diagnostics contain only fixed exception labels, an integer HTTP status, and an allowlisted SDK code. Exception text, traceback, document content, endpoint, key, headers, and request URLs are excluded.
-
-Run local configuration, historical mapping, and installed-dependency startup tests:
+Windows needs a native Tesseract binding matching the interpreter. The [tesserocr project](https://github.com/sirfz/tesserocr) links self-contained [Windows wheels](https://github.com/simonflueckiger/tesserocr-windows_build/releases/tag/tesserocr-v2.10.0-tesseract-5.5.2). For Python 3.12 x64 the verified wheel is `tesserocr-2.10.0-cp312-cp312-win_amd64.whl`, SHA-256 `e05d41a2b0e6f38f3a5195d05a73674d72152a775d1b8ebe481ca9306f94d27a`. Install that wheel into the venv before installing requirements; the matching Windows wheel is not available on PyPI for this release. Place the pinned official `eng.traineddata` in a dedicated directory and set `PHARMACHECK_TESSDATA` to that directory. This is a model path, not an API credential. Linux also searches standard distribution tessdata directories when this variable is absent.
 
 ```bash
 python -m unittest discover -s tests -v
+python -m pip check
 ```
 
-The current compatibility update pins Streamlit **1.48.1** and sets the Docker WebSocket ping interval and timeout to **30 seconds**, keeping CORS and XSRF protection enabled. Azure AI Form Recognizer, Azure Core, and Pillow pins remain unchanged. See the [compatibility evidence](evidence/runtime-compatibility-2026-10-10.md) for the reason, tests, and live-verification limits.
+Tests cover conservative candidates, worker isolation/limits/cleanup, native image and PDF OCR, local UI without Azure settings or network calls, and retained Azure startup/failure paths using fixtures. Historical [16-test](evidence/local-verification-2026-10-10.md), [18-test](evidence/runtime-compatibility-2026-10-10.md), and [23-test](evidence/ocr-diagnostics-2026-10-10.md) records remain dated evidence for earlier revisions. Current results and exact verification boundaries are in the [local OCR record](evidence/local-ocr-2026-10-10.md).
 
-On 10 October 2026 the updated suite passed on Windows Python 3.12.10: **23 passed, zero skipped**, including four Streamlit `AppTest` startup cases, two offline preview/button/failure flows, three safe-metadata tests, and two runtime compatibility regressions. `pip check` also passed. The earlier [16-test offline verification](evidence/local-verification-2026-10-10.md) and [18-test compatibility record](evidence/runtime-compatibility-2026-10-10.md) are preserved as dated evidence.
+## Optional Azure route
 
-The extraction tests use key-value fixtures rather than real OCR, and the startup tests do not call Azure OCR. These results do not establish Azure accuracy, a successful Linux Docker build, or a recovered live Space. See the [migration handoff](deploy/huggingface/DEPLOY.md) for the exact existing-Space file mapping and pending owner verification.
+Choose `Azure (opsional)` explicitly. Only this route resolves `AZURE_ENDPOINT` and `AZURE_KEY` (environment values before local Streamlit secrets) and constructs an Azure client. Missing/invalid settings stop that route with a sanitized setup message. Local failures never trigger Azure automatically. The owner reports the existing Azure resource inactive; no activation, account creation, billing change, or new genuine Azure request is part of this update.
 
-## Current limitations
-
-- The owner reports the Azure resource is inactive; the verified upload/preview does not establish a working OCR service or extracted-field accuracy.
-- Keyword matching depends on the labels returned by the document model.
-- Broad substring keywords, including `ed`, retain the original behavior and can classify unrelated keys; a later extraction redesign needs separate evidence.
-- The app does not normalize dates or validate batch formats.
-- Extracted values still require a person to verify them against the source document.
-- There is no persistent storage or audit trail in this prototype.
+Azure errors expose only a fixed safe message, validated HTTP status, and allowlisted SDK code. Local logs contain only a fixed error code. Raw exceptions, document text, credentials, request URLs, and traces are excluded from app diagnostics.
 
 ## Repository map
 
 ```text
-app.py             Streamlit interface and extraction workflow
-pharmacheck_core.py Environment/secrets resolution and original field mapping
-requirements.txt   Pinned Python dependencies
-Gambar Test.jpeg   Public synthetic test label
-Dockerfile         Proposed Python 3.12 Docker runtime, port 7860
-deploy/huggingface/ Existing Space README template and migration handoff
-tests/             Local configuration/mapping/startup checks
-evidence/          Dated offline verification record
+app.py              Streamlit UI and explicit provider choice
+pharmacheck_core.py  Local worker/parser plus historical Azure helpers
+requirements.txt    Pinned Python dependencies
+Gambar Test.jpeg    Public synthetic label
+Dockerfile          Linux runtime, UID 1000, port 7860
+deploy/huggingface/  Same six-file existing-Space handoff
+tests/              Offline contracts, native OCR, and AppTest workflows
+evidence/           Dated verification and historical boundaries
 ```

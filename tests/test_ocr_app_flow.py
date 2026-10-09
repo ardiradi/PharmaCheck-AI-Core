@@ -45,6 +45,7 @@ class OcrAppFlowTests(unittest.TestCase):
             patch("streamlit.runtime.secrets.Secrets._parse_file_path", side_effect=AssertionError("Do not read real secrets")) as secret_read, \
             patch("socket.socket.connect", side_effect=AssertionError("Do not access the network")) as connect:
             app.run(timeout=15)
+            app.radio[0].set_value("Azure (opsional)").run(timeout=15)
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(len(app.get("imgs")), 1)
             self.assertEqual(len(app.get("file_uploader")), 1)

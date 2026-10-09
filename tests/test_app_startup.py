@@ -21,6 +21,7 @@ class AppStartupTests(unittest.TestCase):
             patch("streamlit.runtime.secrets.Secrets._parse_file_path", side_effect=AssertionError("Startup tests must not read secret files")) as secret_read, \
             patch("socket.socket.connect", side_effect=AssertionError("Startup tests must not access the network")) as connect:
             app.run(timeout=15)
+            app.radio[0].set_value("Azure (opsional)").run(timeout=15)
         secret_read.assert_not_called()
         connect.assert_not_called()
         return app
@@ -32,7 +33,7 @@ class AppStartupTests(unittest.TestCase):
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.warning), 1)
         self.assertIn("AZURE_ENDPOINT", app.warning[0].value)
-        self.assertIn("OCR belum dijalankan", app.info[0].value)
+        self.assertTrue(any("OCR belum dijalankan" in item.value for item in app.info))
         self.assertEqual(len(app.get("file_uploader")), 0)
 
     def test_invalid_endpoint_not_rendered_as_raw_value(self):
