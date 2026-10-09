@@ -1,8 +1,12 @@
 # Existing Space migration handoff
 
-Target: [Ard11/PharmaCheck-AI](https://huggingface.co/spaces/Ard11/PharmaCheck-AI), with app URL [ard11-pharmacheck-ai.hf.space](https://ard11-pharmacheck-ai.hf.space/). This is a preparation package, not a recovered live deployment.
+Target: [Ard11/PharmaCheck-AI](https://huggingface.co/spaces/Ard11/PharmaCheck-AI), with app URL [ard11-pharmacheck-ai.hf.space](https://ard11-pharmacheck-ai.hf.space/). The initial Docker migration reached Running, but its sample upload failed before OCR. This handoff now includes a tested compatibility update; a recovered extraction workflow remains unverified.
 
 On 09 October 2026 the public API reported `sdk: streamlit`, revision `d5a7daa84b77730be3b69f7161277bed6cbe7150`, and `RUNTIME_ERROR` with `Scheduling failure: unable to schedule`. The legacy SDK is deprecated. The remote template Dockerfile points to another entrypoint and is not activated by `sdk: streamlit`. Scheduling is a platform/runtime issue; the proposed migration is not proof that this particular failure is fixed.
+
+On 10 October 2026 the initial Docker revision `51c1edea6fff7366274b57e608326a74c21f92e6` was observed Running, with HTTP 200 at root and a healthy `/_stcore/health`. Two direct browser attempts to upload the public synthetic sample returned HTTP 400 before preview or the extraction button. The build resolved Streamlit 1.32.2 and Tornado 6.5.7. No OCR request had occurred at that point.
+
+The current source pins Streamlit 1.48.1 and adds `--server.websocketPingInterval=30` to the Docker command. The old version's 1-second interval and 30-second requested timeout are reduced to a 1-second effective timeout by modern Tornado; the updated configuration retains 30 seconds. This removes a reproduced compatibility defect, but the uninspected live HTTP 400 response reason prevents treating it as the proven upload root cause. CORS and XSRF defaults stay enabled. See [compatibility evidence](../../evidence/runtime-compatibility-2026-10-10.md).
 
 ## Reviewed file mapping
 
@@ -29,11 +33,11 @@ Do not mirror the source repository's main README over the Space metadata. `sdk:
 
 ## Local verification commands
 
-Python 3.12 is the locally available interpreter. The four direct dependencies remain pinned to the project's original versions; `python:3.12-slim` is a Docker minor-version tag, not a verified immutable digest. A local Windows Python test does not establish that the Linux image builds.
+Python 3.12 is the locally available interpreter. Streamlit is now pinned to 1.48.1; the three Azure/Pillow direct pins retain their original versions. `python:3.12-slim` is a Docker minor-version tag, not a verified immutable digest. A local Windows Python test does not establish that an updated Linux image builds.
 
-The current local verification completed on 10 October 2026 with Windows Python 3.12.10 and the four pinned project dependencies: **all 16 tests passed, zero skipped**, including all four Streamlit `AppTest` startup tests. `pip check` reported no broken requirements. See the [offline verification record](../../evidence/local-verification-2026-10-10.md) for the tested source and behavior. This verifies local startup and the tested configuration/mapping contracts; it does not verify a Linux container or real Azure OCR.
+The current compatibility verification used Windows Python 3.12.10, Streamlit 1.48.1, and Tornado 6.5.10: **all 18 tests passed, zero skipped**, including all four Streamlit `AppTest` startup tests and two runtime compatibility regressions. `pip check` reported no broken requirements. The CLI regression parses the actual Docker command without starting a server and checks the effective 30-second timeout plus enabled protections. Startup fixtures preserve OS environment variables while isolating secrets and blocking network access. See the [compatibility record](../../evidence/runtime-compatibility-2026-10-10.md). This verifies local contracts; it does not verify the updated Linux container or real Azure OCR.
 
-Historical preparation on 09 October had twelve configuration/mapping tests pass and four startup tests skip because the dependency install was incomplete. That local dependency/startup limit is superseded by the 10 October result. Docker CLI was available but its Linux daemon was not running; no Docker image build or run has been performed, and Hugging Face deployment and real OCR checks remain pending.
+Historical preparation on 09 October had twelve configuration/mapping tests pass and four startup tests skip because dependencies were incomplete. The earlier 10 October [16-test result](../../evidence/local-verification-2026-10-10.md) established startup on Streamlit 1.32.2; this 18-test result supersedes it for the compatibility update. Local Docker CLI was available but its Linux daemon was not running. The initial image has built on Hugging Face; the updated image, upload, and real OCR checks remain pending.
 
 ```powershell
 py -3.12 -m venv .venv-recovery

@@ -4,7 +4,7 @@ PharmaCheck AI is a Streamlit prototype for extracting important fields from pha
 
 [Open the live demo](https://ard11-pharmacheck-ai.hf.space/)
 
-On 09 October 2026 the existing Space reported a scheduling runtime error. This repository includes a [Docker migration handoff](deploy/huggingface/DEPLOY.md); the migration has not been deployed and recovery is not yet verified on Hugging Face.
+On 10 October 2026 the initial Docker migration reached Running with successful root and health checks, but the public sample upload returned HTTP 400 before OCR. This repository now contains a [tested Streamlit compatibility update](evidence/runtime-compatibility-2026-10-10.md) and the [existing-Space handoff](deploy/huggingface/DEPLOY.md). The initial HTTP checks do not establish a working extraction flow; verification of the updated live upload and genuine OCR remains pending.
 
 ![Sample pharmaceutical label used to test the extraction flow](Gambar%20Test.jpeg)
 
@@ -63,7 +63,9 @@ Run local configuration, historical mapping, and installed-dependency startup te
 python -m unittest discover -s tests -v
 ```
 
-On 10 October 2026, the complete suite passed on Windows Python 3.12.10 with the pinned project dependencies: **16 passed, zero skipped**, including all four Streamlit `AppTest` startup cases. `pip check` also passed. The [offline verification record](evidence/local-verification-2026-10-10.md) describes the tested behavior and its limits.
+The current compatibility update pins Streamlit **1.48.1** and sets the Docker WebSocket ping interval and timeout to **30 seconds**, keeping CORS and XSRF protection enabled. Azure AI Form Recognizer, Azure Core, and Pillow pins remain unchanged. See the [compatibility evidence](evidence/runtime-compatibility-2026-10-10.md) for the reason, tests, and live-verification limits.
+
+On 10 October 2026 the updated suite passed on Windows Python 3.12.10: **18 passed, zero skipped**, including all four Streamlit `AppTest` startup cases and two runtime compatibility regressions. `pip check` also passed. The earlier [16-test offline verification](evidence/local-verification-2026-10-10.md) is preserved as a dated record of the previous Streamlit version.
 
 The extraction tests use key-value fixtures rather than real OCR, and the startup tests do not call Azure OCR. These results do not establish Azure accuracy, a successful Linux Docker build, or a recovered live Space. See the [migration handoff](deploy/huggingface/DEPLOY.md) for the exact existing-Space file mapping and pending owner verification.
 

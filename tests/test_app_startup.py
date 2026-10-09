@@ -10,11 +10,25 @@ HAS_APP_DEPS = importlib.util.find_spec("streamlit") is not None and importlib.u
 
 @unittest.skipUnless(HAS_APP_DEPS, "Install the project's pinned dependencies for Streamlit startup tests")
 class AppStartupTests(unittest.TestCase):
-    def test_missing_configuration_shows_setup_instead_of_exception(self):
+    def run_app(self):
         from streamlit.testing.v1 import AppTest
 
-        with patch.dict(os.environ, {}, clear=True):
-            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=15)
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+        # A nonempty fixture makes AppTest replace st.secrets instead of reading
+        # the developer's real secret files. It contains no Azure credentials.
+        app.secrets = {"offline_fixture": True}
+        with patch("streamlit.config.get_config_files", return_value=[]), \
+            patch("streamlit.runtime.secrets.Secrets._parse_file_path", side_effect=AssertionError("Startup tests must not read secret files")) as secret_read, \
+            patch("socket.socket.connect", side_effect=AssertionError("Startup tests must not access the network")) as connect:
+            app.run(timeout=15)
+        secret_read.assert_not_called()
+        connect.assert_not_called()
+        return app
+
+    def test_missing_configuration_shows_setup_instead_of_exception(self):
+        # Preserve OS variables needed by Python/Streamlit; blank only Azure.
+        with patch.dict(os.environ, {"AZURE_ENDPOINT": "", "AZURE_KEY": ""}, clear=False):
+            app = self.run_app()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.warning), 1)
         self.assertIn("AZURE_ENDPOINT", app.warning[0].value)
@@ -22,22 +36,19 @@ class AppStartupTests(unittest.TestCase):
         self.assertEqual(len(app.get("file_uploader")), 0)
 
     def test_invalid_endpoint_not_rendered_as_raw_value(self):
-        from streamlit.testing.v1 import AppTest
-
-        with patch.dict(os.environ, {"AZURE_ENDPOINT": "http://PRIVATE_TEST_ENDPOINT", "AZURE_KEY": "PRIVATE_TEST_VALUE"}, clear=True):
-            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=15)
+        with patch.dict(os.environ, {"AZURE_ENDPOINT": "http://PRIVATE_TEST_ENDPOINT", "AZURE_KEY": "PRIVATE_TEST_VALUE"}, clear=False):
+            app = self.run_app()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.warning), 1)
         self.assertNotIn("PRIVATE_TEST_ENDPOINT", app.warning[0].value)
         self.assertNotIn("PRIVATE_TEST_VALUE", app.warning[0].value)
 
     def test_configured_startup_does_not_perform_ocr(self):
-        from streamlit.testing.v1 import AppTest
         from azure.ai.formrecognizer import DocumentAnalysisClient
 
-        with patch.dict(os.environ, {"AZURE_ENDPOINT": "https://example.cognitiveservices.azure.com/", "AZURE_KEY": "offline-test-value"}, clear=True):
+        with patch.dict(os.environ, {"AZURE_ENDPOINT": "https://example.cognitiveservices.azure.com/", "AZURE_KEY": "offline-test-value"}, clear=False):
             with patch.object(DocumentAnalysisClient, "begin_analyze_document", side_effect=AssertionError("Startup must not request OCR")) as analyze:
-                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=15)
+                app = self.run_app()
             analyze.assert_not_called()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.warning), 0)
@@ -45,11 +56,9 @@ class AppStartupTests(unittest.TestCase):
         self.assertEqual(len(app.success), 0)
 
     def test_client_initialization_failure_has_no_raw_exception(self):
-        from streamlit.testing.v1 import AppTest
-
-        with patch.dict(os.environ, {"AZURE_ENDPOINT": "https://initialization-test.cognitiveservices.azure.com/", "AZURE_KEY": "offline-init-test-value"}, clear=True):
+        with patch.dict(os.environ, {"AZURE_ENDPOINT": "https://initialization-test.cognitiveservices.azure.com/", "AZURE_KEY": "offline-init-test-value"}, clear=False):
             with patch("azure.ai.formrecognizer.DocumentAnalysisClient", side_effect=ValueError("PRIVATE_CLIENT_ERROR_VALUE")):
-                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=15)
+                app = self.run_app()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.error), 1)
         self.assertNotIn("PRIVATE_CLIENT_ERROR_VALUE", app.error[0].value)
