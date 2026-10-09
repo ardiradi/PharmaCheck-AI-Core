@@ -57,13 +57,15 @@ Do not commit credentials or documents containing confidential information.
 
 Environment values take precedence over the local secrets file. Missing or invalid configuration displays a setup message and stops before the uploader or OCR request. Service failures display a generic message without raw exceptions or credentials. There is no simulated OCR fallback.
 
-Run local configuration, historical mapping, and optional installed-dependency startup tests:
+Run local configuration, historical mapping, and installed-dependency startup tests:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The extraction tests use key-value fixtures rather than real OCR; they do not establish Azure accuracy or a recovered live Space. See the [migration handoff](deploy/huggingface/DEPLOY.md) for the exact existing-Space file mapping and pending owner verification.
+On 10 October 2026, the complete suite passed on Windows Python 3.12.10 with the pinned project dependencies: **16 passed, zero skipped**, including all four Streamlit `AppTest` startup cases. `pip check` also passed. The [offline verification record](evidence/local-verification-2026-10-10.md) describes the tested behavior and its limits.
+
+The extraction tests use key-value fixtures rather than real OCR, and the startup tests do not call Azure OCR. These results do not establish Azure accuracy, a successful Linux Docker build, or a recovered live Space. See the [migration handoff](deploy/huggingface/DEPLOY.md) for the exact existing-Space file mapping and pending owner verification.
 
 ## Current limitations
 
@@ -83,4 +85,5 @@ Gambar Test.jpeg   Public synthetic test label
 Dockerfile         Proposed Python 3.12 Docker runtime, port 7860
 deploy/huggingface/ Existing Space README template and migration handoff
 tests/             Local configuration/mapping/startup checks
+evidence/          Dated offline verification record
 ```

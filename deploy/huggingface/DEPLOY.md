@@ -31,12 +31,15 @@ Do not mirror the source repository's main README over the Space metadata. `sdk:
 
 Python 3.12 is the locally available interpreter. The four direct dependencies remain pinned to the project's original versions; `python:3.12-slim` is a Docker minor-version tag, not a verified immutable digest. A local Windows Python test does not establish that the Linux image builds.
 
-Preparation checks on 09 October used Windows Python 3.12.10: twelve configuration/mapping tests passed, while four installed-dependency Streamlit startup tests were skipped. The optional dependency install was stopped after a slow PyArrow wheel download; full dependency compatibility and Streamlit startup remain unverified. Complete the install and rerun the entire suite before deployment. Docker CLI was available but its Linux daemon was not running, so no image build was performed.
+The current local verification completed on 10 October 2026 with Windows Python 3.12.10 and the four pinned project dependencies: **all 16 tests passed, zero skipped**, including all four Streamlit `AppTest` startup tests. `pip check` reported no broken requirements. See the [offline verification record](../../evidence/local-verification-2026-10-10.md) for the tested source and behavior. This verifies local startup and the tested configuration/mapping contracts; it does not verify a Linux container or real Azure OCR.
+
+Historical preparation on 09 October had twelve configuration/mapping tests pass and four startup tests skip because the dependency install was incomplete. That local dependency/startup limit is superseded by the 10 October result. Docker CLI was available but its Linux daemon was not running; no Docker image build or run has been performed, and Hugging Face deployment and real OCR checks remain pending.
 
 ```powershell
 py -3.12 -m venv .venv-recovery
 .\.venv-recovery\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv-recovery\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-recovery\Scripts\python.exe -m pip check
 ```
 
 When a functioning Docker daemon is available:
