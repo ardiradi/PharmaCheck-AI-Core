@@ -1,7 +1,10 @@
+import os
+
 import streamlit as st
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from PIL import Image
+from pharmacheck_core import AzureConfigurationError, extract_fields, resolve_azure_config
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -13,19 +16,28 @@ st.set_page_config(
 st.title("💊 PharmaCheck AI")
 st.markdown("Unggah gambar dokumen atau label material farmasi untuk mengekstrak informasi penting seperti **Batch Number**, **Expire Date**, dan **Material Name** menggunakan Azure Document Intelligence.")
 
-# Data Azure
-ENDPOINT = st.secrets["AZURE_ENDPOINT"]
-KEY = st.secrets["AZURE_KEY"]
+st.caption("Prototipe ekstraksi dokumen. Periksa hasil terhadap dokumen sumber; aplikasi tidak membuat keputusan medis atau persetujuan kualitas.")
 
 # Inisialisasi Azure Client (di-cache agar tidak inisialisasi ulang terus-menerus)
 @st.cache_resource
-def get_azure_client():
+def get_azure_client(endpoint, key):
     return DocumentAnalysisClient(
-        endpoint=ENDPOINT, 
-        credential=AzureKeyCredential(KEY)
+        endpoint=endpoint,
+        credential=AzureKeyCredential(key)
     )
 
-client = get_azure_client()
+try:
+    config = resolve_azure_config(os.environ, lambda name: st.secrets[name])
+except AzureConfigurationError as error:
+    st.warning(str(error))
+    st.info("Pemilik aplikasi perlu mengatur AZURE_ENDPOINT dan AZURE_KEY di Space Settings → Secrets atau .streamlit/secrets.toml lokal. OCR belum dijalankan.")
+    st.stop()
+
+try:
+    client = get_azure_client(config.endpoint, config.key)
+except Exception:
+    st.error("Layanan ekstraksi belum dapat diinisialisasi. Pemilik aplikasi perlu memeriksa konfigurasi Azure. OCR belum dijalankan.")
+    st.stop()
 
 # Komponen Upload File
 uploaded_file = st.file_uploader("Pilih file gambar atau PDF", type=["jpg", "jpeg", "png", "pdf"])
@@ -49,51 +61,8 @@ if uploaded_file is not None:
                 poller = client.begin_analyze_document("prebuilt-document", document=contents)
                 result = poller.result()
                 
-                # Struktur Data Default
-                extracted_data = {
-                    "Batch Number": "-",
-                    "Expire Date": "-",
-                    "Material Name": "-"
-                }
-                
-                # Keyword matching
-                batch_keywords = ["batch", "batch no", "batch number", "lot", "lot no"]
-                expire_keywords = ["expire", "expire date", "exp", "exp date", "expiration", "ed", "kadaluarsa"]
-                material_keywords = ["material", "material name", "product", "product name", "item", "nama"]
-                
-                other_fields = {}
-                
-                # Logika ekstraksi Key-Value
-                if result.key_value_pairs:
-                    for kv_pair in result.key_value_pairs:
-                        if kv_pair.key:
-                            key_text = kv_pair.key.content.lower().strip()
-                            if key_text.endswith(':'):
-                                key_text = key_text[:-1].strip()
-                                
-                            val_text = kv_pair.value.content if kv_pair.value else ""
-                            
-                            matched = False
-                            for kw in batch_keywords:
-                                if kw in key_text:
-                                    extracted_data["Batch Number"] = val_text
-                                    matched = True
-                                    break
-                            if not matched:
-                                for kw in expire_keywords:
-                                    if kw in key_text:
-                                        extracted_data["Expire Date"] = val_text
-                                        matched = True
-                                        break
-                            if not matched:
-                                for kw in material_keywords:
-                                    if kw in key_text:
-                                        extracted_data["Material Name"] = val_text
-                                        matched = True
-                                        break
-                                        
-                            if not matched:
-                                other_fields[kv_pair.key.content] = val_text
+                # Kata kunci dan urutan pencocokan historis dipertahankan.
+                extracted_data, other_fields = extract_fields(result.key_value_pairs)
                 
                 st.success("Ekstraksi berhasil!")
                 
@@ -122,5 +91,5 @@ if uploaded_file is not None:
                             raw_text += line.content + "\n"
                     st.text(raw_text)
 
-            except Exception as e:
-                st.error(f"Terjadi kesalahan: {str(e)}")
+            except Exception:
+                st.error("Dokumen belum berhasil diproses sepenuhnya. Periksa format dokumen, konfigurasi Azure, dan ketersediaan layanan, lalu coba lagi.")

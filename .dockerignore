@@ -1,0 +1,6 @@
+# Allow only runtime files in the build context.
+*
+!Dockerfile
+!requirements.txt
+!app.py
+!pharmacheck_core.py
