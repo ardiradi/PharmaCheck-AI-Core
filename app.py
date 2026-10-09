@@ -1,10 +1,13 @@
+import logging
 import os
 
 import streamlit as st
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from PIL import Image
-from pharmacheck_core import AzureConfigurationError, extract_fields, resolve_azure_config
+from pharmacheck_core import AzureConfigurationError, describe_ocr_failure, extract_fields, resolve_azure_config
+
+_LOGGER = logging.getLogger("pharmacheck.ocr")
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -46,7 +49,7 @@ if uploaded_file is not None:
     # Jika file adalah gambar, tampilkan preview-nya
     if uploaded_file.type in ["image/jpeg", "image/png", "image/jpg"]:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Preview Dokumen", use_column_width=True)
+        st.image(image, caption="Preview Dokumen", use_container_width=True)
     elif uploaded_file.type == "application/pdf":
         st.info("File PDF telah diunggah.")
         
@@ -91,5 +94,14 @@ if uploaded_file is not None:
                             raw_text += line.content + "\n"
                     st.text(raw_text)
 
-            except Exception:
-                st.error("Dokumen belum berhasil diproses sepenuhnya. Periksa format dokumen, konfigurasi Azure, dan ketersediaan layanan, lalu coba lagi.")
+            except Exception as error:
+                failure = describe_ocr_failure(error)
+                _LOGGER.error(
+                    "OCR failed: exception_type=%s http_status=%s sdk_code=%s",
+                    failure.exception_type,
+                    failure.http_status if failure.http_status is not None else "unknown",
+                    failure.sdk_code or "unknown",
+                    exc_info=False,
+                    stack_info=False,
+                )
+                st.error(failure.user_message)
